@@ -5,16 +5,18 @@ namespace Dingo\Api\Routing;
 use Closure;
 use Exception;
 use RuntimeException;
+use Dingo\Api\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
-use Dingo\Api\Http\Request;
 use Dingo\Api\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Dingo\Api\Http\InternalRequest;
 use Illuminate\Container\Container;
 use Dingo\Api\Contract\Routing\Adapter;
 use Dingo\Api\Contract\Debug\ExceptionHandler;
+use Illuminate\Routing\Route as IlluminateRoute;
 use Illuminate\Http\Response as IlluminateResponse;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\NotAcceptableHttpException;
 
 class Router
@@ -93,7 +95,6 @@ class Router
      * Create a new router instance.
      *
      * @param \Dingo\Api\Contract\Routing\Adapter        $adapter
-     * @param \Dingo\Api\Http\Parser\Accept              $accept
      * @param \Dingo\Api\Contract\Debug\ExceptionHandler $exception
      * @param \Illuminate\Container\Container            $container
      * @param string                                     $domain
@@ -116,9 +117,9 @@ class Router
      * attributes and a required callback.
      *
      * This method can be called without the third parameter, however,
-     * the callback should always be the last paramter.
+     * the callback should always be the last parameter.
      *
-     * @param string         $version
+     * @param array|string   $version
      * @param array|callable $second
      * @param callable       $third
      *
@@ -127,9 +128,9 @@ class Router
     public function version($version, $second, $third = null)
     {
         if (func_num_args() == 2) {
-            list($version, $callback, $attributes) = array_merge(func_get_args(), [[]]);
+            [$version, $callback, $attributes] = array_merge(func_get_args(), [[]]);
         } else {
-            list($version, $attributes, $callback) = func_get_args();
+            [$version, $attributes, $callback] = func_get_args();
         }
 
         $attributes = array_merge($attributes, ['version' => $version]);
@@ -294,7 +295,7 @@ class Router
             $options = [];
 
             if (is_array($resource)) {
-                list($resource, $options) = $resource;
+                [$resource, $options] = $resource;
             }
 
             $this->resource($name, $resource, $options);
@@ -511,10 +512,6 @@ class Router
 
         try {
             $response = $this->adapter->dispatch($request, $request->version());
-
-            if (property_exists($response, 'exception') && $response->exception instanceof Exception) {
-                throw $response->exception;
-            }
         } catch (Exception $exception) {
             if ($request instanceof InternalRequest) {
                 throw $exception;
@@ -561,7 +558,7 @@ class Router
 
         if ($response->isSuccessful() && $this->requestIsConditional()) {
             if (! $response->headers->has('ETag')) {
-                $response->setEtag(sha1($response->getContent()));
+                $response->setEtag(sha1($response->getContent() ?: ''));
             }
 
             $response->isNotModified($request);
@@ -625,6 +622,17 @@ class Router
             return $this->currentRoute;
         } elseif (! $this->hasDispatchedRoutes() || ! $route = $this->container['request']->route()) {
             return;
+        }
+
+        // We need to recompile the route, adding the where clause (for pattern restrictions) and check again
+        if (is_object($route) && $route instanceof IlluminateRoute) {
+            $route->compiled = false;
+            $this->addWhereClausesToRoute($route);
+
+            // If the matching fails, it would be due to a parameter format validation check fail
+            if (! $route->matches($this->container['request'])) {
+                throw new NotFoundHttpException('Not Found!');
+            }
         }
 
         return $this->currentRoute = $this->createRoute($route);
@@ -848,5 +856,23 @@ class Router
     public function currentRouteUses($action)
     {
         return $this->currentRouteAction() == $action;
+    }
+
+    /**
+     * Add the necessary where clauses to the route based on its initial registration.
+     *
+     * @param  \Illuminate\Routing\Route  $route
+     *
+     * @return \Illuminate\Routing\Route
+     */
+    protected function addWhereClausesToRoute($route)
+    {
+        $patterns = app()->make(\Illuminate\Routing\Router::class)->getPatterns();
+
+        $route->where(array_merge(
+            $patterns, $route->getAction()['where'] ?? []
+        ));
+
+        return $route;
     }
 }
