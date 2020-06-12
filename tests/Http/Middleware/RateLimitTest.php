@@ -2,30 +2,45 @@
 
 namespace Dingo\Api\Tests\Http\Middleware;
 
-use Mockery as m;
+use Dingo\Api\Exception\RateLimitExceededException;
+use Dingo\Api\Http\InternalRequest;
+use Dingo\Api\Http\Middleware\RateLimit;
+use Dingo\Api\Http\RateLimit\Handler;
 use Dingo\Api\Http\Request;
 use Dingo\Api\Http\Response;
 use Dingo\Api\Routing\Route;
 use Dingo\Api\Routing\Router;
-use PHPUnit\Framework\TestCase;
-use Illuminate\Cache\CacheManager;
-use Dingo\Api\Http\InternalRequest;
-use Illuminate\Container\Container;
-use Dingo\Api\Http\RateLimit\Handler;
+use Dingo\Api\Tests\BaseTestCase;
 use Dingo\Api\Tests\Stubs\ThrottleStub;
-use Dingo\Api\Http\Middleware\RateLimit;
-use Dingo\Api\Exception\RateLimitExceededException;
+use Illuminate\Cache\CacheManager;
+use Illuminate\Container\Container;
+use Mockery as m;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-class RateLimitTest extends TestCase
+class RateLimitTest extends BaseTestCase
 {
+    /**
+     * @var Container
+     */
     protected $container;
+    /**
+     * @var Router|m\LegacyMockInterface|m\MockInterface
+     */
     protected $router;
+    /**
+     * @var CacheManager
+     */
     protected $cache;
+    /**
+     * @var Handler
+     */
     protected $handler;
+    /**
+     * @var RateLimit
+     */
     protected $middleware;
 
-    public function setUp()
+    public function setUp(): void
     {
         $this->container = new Container;
         $this->container['config'] = ['cache.default' => 'array', 'cache.stores.array' => ['driver' => 'array']];
@@ -38,11 +53,6 @@ class RateLimitTest extends TestCase
         $this->handler->setRateLimiter(function ($container, $request) {
             return $request->getClientIp();
         });
-    }
-
-    public function tearDown()
-    {
-        m::close();
     }
 
     public function testMiddlewareBypassesRequestsWithNoRateLimiting()
@@ -162,8 +172,8 @@ class RateLimitTest extends TestCase
         $this->assertArrayHasKey('x-ratelimit-limit', $response->headers->all());
         $this->assertArrayHasKey('x-ratelimit-remaining', $response->headers->all());
         $this->assertArrayHasKey('x-ratelimit-reset', $response->headers->all());
-        $this->assertSame(4, $response->headers->get('x-ratelimit-remaining'));
-        $this->assertSame(5, $response->headers->get('x-ratelimit-limit'));
+        $this->assertEquals(4, $response->headers->get('x-ratelimit-remaining'));
+        $this->assertEquals(5, $response->headers->get('x-ratelimit-limit'));
     }
 
     public function testRateLimitingWithRouteThrottle()
@@ -185,7 +195,7 @@ class RateLimitTest extends TestCase
         $this->assertArrayHasKey('x-ratelimit-limit', $response->headers->all());
         $this->assertArrayHasKey('x-ratelimit-remaining', $response->headers->all());
         $this->assertArrayHasKey('x-ratelimit-reset', $response->headers->all());
-        $this->assertSame(9, $response->headers->get('x-ratelimit-remaining'));
-        $this->assertSame(10, $response->headers->get('x-ratelimit-limit'));
+        $this->assertEquals(9, $response->headers->get('x-ratelimit-remaining'));
+        $this->assertEquals(10, $response->headers->get('x-ratelimit-limit'));
     }
 }

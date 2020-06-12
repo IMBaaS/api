@@ -6,14 +6,14 @@ use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
 
-class Application58Stub extends Container implements Application
+class Application6Stub extends Container implements Application
 {
     public function version()
     {
         return 'v1';
     }
 
-    public function basePath()
+    public function basePath($path = '')
     {
         //
     }

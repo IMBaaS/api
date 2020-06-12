@@ -3,20 +3,18 @@
 namespace Dingo\Api\Routing;
 
 use Closure;
-use Exception;
-use RuntimeException;
+use Dingo\Api\Contract\Debug\ExceptionHandler;
+use Dingo\Api\Contract\Routing\Adapter;
+use Dingo\Api\Http\InternalRequest;
 use Dingo\Api\Http\Request;
+use Dingo\Api\Http\Response;
+use Exception;
+use Illuminate\Container\Container;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Response as IlluminateResponse;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
-use Dingo\Api\Http\Response;
-use Illuminate\Http\JsonResponse;
-use Dingo\Api\Http\InternalRequest;
-use Illuminate\Container\Container;
-use Dingo\Api\Contract\Routing\Adapter;
-use Dingo\Api\Contract\Debug\ExceptionHandler;
-use Illuminate\Routing\Route as IlluminateRoute;
-use Illuminate\Http\Response as IlluminateResponse;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\NotAcceptableHttpException;
 
 class Router
@@ -337,6 +335,12 @@ class Router
             $action = ['uses' => $action, 'controller' => $action];
         } elseif ($action instanceof Closure) {
             $action = [$action];
+        } elseif (is_array($action)) {
+            // For this sort of syntax $api->post('login', [LoginController::class, 'login']);
+            if (is_string(Arr::first($action)) && class_exists(Arr::first($action)) && count($action) == 2) {
+                $action = implode('@', $action);
+                $action = ['uses' => $action, 'controller' => $action];
+            }
         }
 
         $action = $this->mergeLastGroupAttributes($action);
@@ -422,7 +426,7 @@ class Router
             $new['as'] = trim($old['as'].'.'.Arr::get($new, 'as', ''), '.');
         }
 
-        return array_merge_recursive(array_except($old, ['namespace', 'prefix', 'where', 'as']), $new);
+        return array_merge_recursive(Arr::except($old, ['namespace', 'prefix', 'where', 'as']), $new);
     }
 
     /**
@@ -622,17 +626,6 @@ class Router
             return $this->currentRoute;
         } elseif (! $this->hasDispatchedRoutes() || ! $route = $this->container['request']->route()) {
             return;
-        }
-
-        // We need to recompile the route, adding the where clause (for pattern restrictions) and check again
-        if (is_object($route) && $route instanceof IlluminateRoute) {
-            $route->compiled = false;
-            $this->addWhereClausesToRoute($route);
-
-            // If the matching fails, it would be due to a parameter format validation check fail
-            if (! $route->matches($this->container['request'])) {
-                throw new NotFoundHttpException('Not Found!');
-            }
         }
 
         return $this->currentRoute = $this->createRoute($route);
@@ -856,23 +849,5 @@ class Router
     public function currentRouteUses($action)
     {
         return $this->currentRouteAction() == $action;
-    }
-
-    /**
-     * Add the necessary where clauses to the route based on its initial registration.
-     *
-     * @param  \Illuminate\Routing\Route  $route
-     *
-     * @return \Illuminate\Routing\Route
-     */
-    protected function addWhereClausesToRoute($route)
-    {
-        $patterns = app()->make(\Illuminate\Routing\Router::class)->getPatterns();
-
-        $route->where(array_merge(
-            $patterns, $route->getAction()['where'] ?? []
-        ));
-
-        return $route;
     }
 }
